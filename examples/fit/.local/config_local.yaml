@@ -1,0 +1,39 @@
+min_log_level: 2
+compile: # see help(tensorflow.keras.Model.compile) for options
+    optimizer: 
+        class_path: tensorflow.keras.optimizers.Adam
+        init_args:
+            learning_rate: 0.001
+    loss: 
+        class_path: tensorflow.keras.losses.SparseCategoricalCrossentropy
+        init_args:
+            from_logits: false
+    metrics:
+        - class_path: tensorflow.keras.metrics.SparseCategoricalAccuracy
+    run_eagerly: false
+fit: # See help(tensorflow.keras.Model.fit) for options. Only supports tf.Dataset inputs
+    verbose: 2
+    epochs: 300
+    callbacks:
+        - class_path: tensorflow.keras.callbacks.TensorBoard
+          init_args:
+              log_dir: /scratch/usr/bzfbnick/tf_hpc_output/fashionmnist/logs
+        - class_path: tensorflow.keras.callbacks.ProgbarLogger
+        - class_path: tensorflow.keras.callbacks.ModelCheckpoint
+          init_args:
+              filepath: /scratch/usr/bzfbnick/tf_hpc_output/fashionmnist
+    validation_freq: 1
+dataset: # see help(tensorflow_datasets.load)
+    name: fashion_mnist
+    batch_size: 512
+    split: ['train[0%:80%]', 'train[80%:100%]']
+model_wrapper:
+    model:
+        class_path: tf_hpc.nn.models.FullyConnectedClassifier
+        init_args:
+            tag: fully_connected_classifier
+            out_dim: 10
+            activation: relu
+            class_activation: softmax
+            hidden_layers: [512, 256]
+strategy: null
