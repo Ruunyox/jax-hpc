@@ -7,9 +7,9 @@
 #SBATCH --mem-per-cpu=1G
 #SBATCH --cpus-per-task=4
 
-module load anaconda3/2023.09
-conda activate base
+conda activate YOUR_CONDA_ENV
 
 export JAX_PLATFORM_NAME=cpu
+export PYTHONUNBUFFERED=on
 
-python3 -u test.py
+jaxhpc --config config_local.yaml

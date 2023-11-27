@@ -4,8 +4,6 @@ import jax.numpy as jnp
 import haiku as hk
 from typing import Callable, List, Optional
 
-# Taken from https://github.com/google-deepmind/dm-haiku/blob/main/examples/mnist.py
-
 
 class HaikuModel(object):
     """Abstract custom Haiku Module"""
@@ -66,3 +64,10 @@ class FullyConnectedClassifier(HaikuModel):
 
         net = hk.Sequential(layers)
         return net
+
+
+class ModelWrapper(object):
+    """Wrapper for config instantiations"""
+
+    def __init__(self, model: HaikuModel):
+        self.model = model

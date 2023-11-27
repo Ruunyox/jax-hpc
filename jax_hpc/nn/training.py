@@ -1,3 +1,4 @@
+import datetime
 import jax
 import jaxlib
 import optax
@@ -7,7 +8,19 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 import jax.numpy as jnp
+from functools import partial
 from ..nn.models import *
+import tqdm
+
+
+class FitWrapper(NamedTuple):
+    """Wrapper for config instantiation"""
+
+    num_epochs: int
+    # Number of passes through the entire training dataset
+    val_freq: int
+    # `int` specifying the number of epochs between successive
+    # validations
 
 
 class Batch(NamedTuple):
@@ -29,7 +42,7 @@ class TrainingState(NamedTuple):
 
 
 def image_cat_cross_entropy(
-    params: hk.Params, batch: Batch, model: Callable, num_classes: int = 10
+    params: hk.Params, batch: Batch, model, num_classes: int = 10
 ) -> jax.Array:
     """Mean batch cross-entropy classification loss. Taken from
     https://github.com/google-deepmind/dm-haiku/blob/main/examples/mnist.py
@@ -40,6 +53,10 @@ def image_cat_cross_entropy(
         Instance of `hk.Params` for a model
     batch:
         `Batch` instance containing inputs and labels
+    model:
+        Haiku-transformed model
+    logits:
+        `
     num_classes:
         Number of classes for classification
 
@@ -49,8 +66,8 @@ def image_cat_cross_entropy(
         Batchwise negative log likelihood
     """
 
-    batch_size, *_ = batch.image.shape
     logits = model.apply(params, batch.image)
+    batch_size, *_ = batch.image.shape
     labels = jax.nn.one_hot(batch.label, num_classes)
     log_likelihood = jnp.sum(labels * jax.nn.log_softmax(logits))
 
@@ -58,7 +75,7 @@ def image_cat_cross_entropy(
 
 
 class ClassifierTrainer(object):
-    """Basic wrapper for training
+    """Basic wrapper for training a classifier model
 
     Parameters
     ----------
@@ -94,9 +111,7 @@ class ClassifierTrainer(object):
         self.initialized = False
         self.verbose = verbose
 
-    def validate(
-        self, params: hk.Params, batch: Batch, num_classes: int = 10
-    ) -> Tuple[jax.Array, jax.Array]:
+    def validate(self, params: hk.Params, batch: Batch) -> Tuple[jax.Array, jax.Array]:
         """Predicts batchwise validation loss/accuracy using supplied parameters
 
         Parameters
@@ -105,8 +120,6 @@ class ClassifierTrainer(object):
             Instance of `hk.Params` for a model
         batch:
             `Batch` instance containing inputs and labels
-        num_classes:
-            Number of classes for classification
 
         Returns
         -------
@@ -116,14 +129,14 @@ class ClassifierTrainer(object):
             Batchwise accuracy
         """
         loss = jnp.mean(
-            self.loss_fn(params, batch, self.model, num_classes=num_classes)
+            self.loss_fn(params, batch, self.model, num_classes=self.num_classes)
         )
-        logits = self.model.apply(params, batch.image)
-        predictions = jnp.argmax(logits, axis=-1)
+        predictions = jnp.argmax(self.model.apply(params, batch.image), axis=-1)
         return jnp.mean(loss), jnp.mean(predictions == batch.label)
 
+    @partial(jax.jit, static_argnums=(0,))
     def update(
-        self, state: TrainingState, batch: Batch, num_classes: int = 10
+        self, state: TrainingState, batch: Batch
     ) -> Tuple[jax.Array, TrainingState]:
         """Gradient update over batch of training examples, returns loss and new
         parameter/optimizer state
@@ -135,8 +148,6 @@ class ClassifierTrainer(object):
             state
         batch:
             `Batch` instance containing inputs and labels
-        num_classes:
-            Number of classes for classification
 
         Returns
         -------
@@ -148,14 +159,16 @@ class ClassifierTrainer(object):
         """
 
         # get gradients from model predictions and targets via the loss function
-        grads = jax.grad(self.loss_fn)(state.params, batch, self.model, num_classes)
+        grads = jax.grad(self.loss_fn)(
+            state.params, batch, self.model, num_classes=self.num_classes
+        )
         # get gradient updates and new optimizer state
         updates, opt_state = self.optimizer.update(grads, state.opt_state)
 
         # get gradient-updated params
         params = optax.apply_updates(state.params, updates)
         return jnp.mean(
-            self.loss_fn(state.params, batch, self.model, num_classes)
+            self.loss_fn(state.params, batch, self.model, num_classes=self.num_classes)
         ), TrainingState(params, opt_state)
 
     def set_initial_state(self, dummy_input: np.ndarray):
@@ -194,7 +207,7 @@ class ClassifierTrainer(object):
             `Iterator` over `Batch`es of size batch_size
         """
 
-        ds.cache()
+        # ds.cache()
         if shuffle:
             ds.shuffle(batch_size)
         ds = ds.unbatch()
@@ -205,8 +218,9 @@ class ClassifierTrainer(object):
     def train(
         self,
         train_dataset: tf.data.Dataset,
-        val_dataset: tf.data.Dataset,
+        val_dataset: Optional[tf.data.Dataset],
         num_epochs: int = 300,
+        val_freq: int = 10,
     ):
         """Training/validation loop
 
@@ -219,39 +233,53 @@ class ClassifierTrainer(object):
             Validation is performed at the end of every epoch.
         num_epochs:
             Number of passes through the entire training dataset
+        val_freq:
+            `int` specifying the number of epochs between successive
+             validations
         """
 
         if not self.initialized:
             raise RuntimeError(
                 "Model and optimizer not initialized. Call `Trainer.set_initial_state` first."
             )
-
+        if self.verbose:
+            print(f"Training starting: {datetime.datetime.now()}")
         for epoch in range(num_epochs):
             train_examples = self.dataset_to_iterator(
                 train_dataset, batch_size=512, shuffle=True
             )
-            val_examples = self.dataset_to_iterator(
-                train_dataset, batch_size=512, shuffle=False
-            )
+            if val_dataset:
+                val_examples = self.dataset_to_iterator(
+                    val_dataset, batch_size=512, shuffle=False
+                )
+
             train_losses = []
-            validation_losses = []
-            validation_accuracy = []
-            for i, train_batch in enumerate(train_examples):
+            for i, train_batch in tqdm.tqdm(
+                enumerate(train_examples), desc="Training..."
+            ):
                 loss, self.current_training_state = self.update(
                     self.current_training_state,
                     train_batch,
-                    num_classes=self.num_classes,
                 )
                 train_losses.append(loss)
-            for i, validation_batch in enumerate(val_examples):
-                loss, accuracy = self.validate(
-                    self.current_training_state.params,
-                    validation_batch,
-                    num_classes=self.num_classes,
-                )
-                validation_losses.append(loss)
-                validation_accuracy.append(accuracy)
-            if self.verbose:
+
+            if epoch % val_freq == 0 and val_dataset is not None:
+                validation_losses = []
+                validation_accuracy = []
+                for i, validation_batch in tqdm.tqdm(
+                    enumerate(val_examples), desc="Validating..."
+                ):
+                    loss, accuracy = self.validate(
+                        self.current_training_state.params,
+                        validation_batch,
+                    )
+                    validation_losses.append(loss)
+                    validation_accuracy.append(accuracy)
+            if self.verbose and val_dataset is not None:
                 jax.debug.print(
                     f"Epoch {epoch}: [train {jnp.mean(np.array(train_losses)):.4f}] --> [val {jnp.mean(np.array(validation_losses)):.4f}] --> [val acc {jnp.mean(np.array(validation_accuracy)):.4f}]"
+                )
+            if self.verbose and val_dataset is None:
+                jax.debug.print(
+                    f"Epoch {epoch}: [train {jnp.mean(np.array(train_losses)):.4f}]"
                 )

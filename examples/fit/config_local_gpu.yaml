@@ -1,0 +1,19 @@
+platform: gpu
+model:
+    model:
+        class_path: jax_hpc.nn.models.FullyConnectedClassifier
+        init_args:
+            out_dim: 10
+            activation: jax.nn.relu
+            hidden_layers: [512,256]
+fit:
+    num_epochs: 300
+    val_freq: 10
+optimizer:
+    name: optax.adam
+    learning_rate: 0.001
+loss_function: image_cat_cross_entropy
+dataset:
+    name: fashion_mnist
+    batch_size: 512
+    split: ["train[0%:80%]", "train[80%:100%]"]
