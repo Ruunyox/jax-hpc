@@ -18,7 +18,7 @@ Different example YAMLs and SLURM submission scripts for CPU and DDP-GPU trainin
 
 After installation (`pip install .`), run the following:
 
-`tfhpc --config PATH_TO_YOUR_CONFIG`
+`jaxhpc --config PATH_TO_YOUR_CONFIG`
 
 To train a model. Example configs and SLURM submission scripts can be found in
 the `examples` folder. Be aware that you may need to predownload/cache
