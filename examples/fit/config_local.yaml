@@ -1,3 +1,10 @@
+cache_data: false
+#profile: /scratch/usr/bzfbnick/jax_hpc_output/fashion_mnist/tensorboard
+logger:
+    logger:
+        class_path: torch.utils.tensorboard.writer.SummaryWriter
+        init_args:
+            log_dir: /scratch/usr/bzfbnick/jax_hpc_output/fashion_mnist/tensorboard
 platform: cpu
 model:
     model:

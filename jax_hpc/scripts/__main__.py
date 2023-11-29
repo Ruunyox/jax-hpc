@@ -10,6 +10,7 @@ import optax
 import tensorflow_datasets as tfds
 import numpy as np
 from jax_hpc.nn.training import *
+import jax.profiler
 
 loss_functions = {"image_cat_cross_entropy": image_cat_cross_entropy}
 platforms = tuple(["cpu", "gpu", "tpu"])
@@ -18,10 +19,13 @@ optimizers = {"optax.adam": optax.adam}
 
 def main():
     parser = ArgumentParser()
+    parser.add_argument("--cache_data", type=bool, default=False)
+    parser.add_argument("--profile", type=Optional[str], default=None)
     parser.add_argument("--platform", type=str, default="cpu")
     parser.add_argument("--optimizer", type=Dict[str, Any])
     parser.add_argument("--loss_function", type=str)
     parser.add_class_arguments(ModelWrapper, "model")
+    parser.add_class_arguments(LoggerWrapper, "logger", fail_untyped=False)
     parser.add_class_arguments(FitWrapper, "fit")
     parser.add_function_arguments(tfds.load, "dataset")
     parser.add_argument("--config", action=ActionConfigFile)
@@ -45,9 +49,9 @@ def main():
 
     # Dataset
 
-    # disable auto cache:
-    rc = tfds.ReadConfig(try_autocache=False)
-    cfg.dataset["read_config"] = rc
+    if not cfg.cache_data:
+        rc = tfds.ReadConfig(try_autocache=False)
+        cfg.dataset["read_config"] = rc
     dataset = tfds.load(**cfg.dataset)
     if isinstance(dataset, list):
         if len(dataset) not in [1, 2]:
@@ -63,10 +67,25 @@ def main():
         train_dataset = dataset["train"]
         val_dataset = None
 
-    trainer = nn.training.ClassifierTrainer(cfg.model.model, optimizer, loss_fn)
+    if cfg.cache_data:
+        train_dataset = train_dataset.cache()
+        if val_dataset is not None:
+            val_dataset = train_dataset.cache()
+
+    trainer = nn.training.ClassifierTrainer(
+        cfg.model.model, optimizer, loss_fn, verbose=True, logger=cfg.logger.logger
+    )
     dummy_data = list(train_dataset.take(1))[0]["image"].numpy()
     trainer.set_initial_state(dummy_data)
-    trainer.train(train_dataset, val_dataset, **cfg.fit._asdict())
+
+    if cfg.profile is not None:
+        print("Begining profiling...")
+        jax.profiler.start_trace(log_dir=cfg.profile)
+
+    trainer.train(train_dataset, val_dataset, **cfg.fit._asdict(), cache=cfg.cache_data)
+    if cfg.profile is not None:
+        print("Ending profiling...")
+        jax.profiler.stop_trace()
 
 
 if __name__ == "__main__":

@@ -11,6 +11,8 @@ import jax.numpy as jnp
 from functools import partial
 from ..nn.models import *
 import tqdm
+import torch
+import torch.utils.tensorboard
 
 
 class FitWrapper(NamedTuple):
@@ -21,6 +23,15 @@ class FitWrapper(NamedTuple):
     val_freq: int
     # `int` specifying the number of epochs between successive
     # validations
+
+
+class LoggerWrapper(object):
+    """Wrapper for training/validation logging"""
+
+    def __init__(
+        self, logger: Optional[torch.utils.tensorboard.writer.SummaryWriter] = None
+    ):
+        self.logger = logger
 
 
 class Batch(NamedTuple):
@@ -99,6 +110,7 @@ class ClassifierTrainer(object):
         optimizer: optax._src.base.GradientTransformation,
         loss_fn: Callable,
         verbose: bool = True,
+        logger: Optional[torch.utils.tensorboard.writer.SummaryWriter] = None,
     ):
         # Model forward kernels must be cached using
         # haiku transforms of generated haiku modules
@@ -110,6 +122,7 @@ class ClassifierTrainer(object):
         self.num_classes = model.hyperparams["out_dim"]
         self.initialized = False
         self.verbose = verbose
+        self.logger = logger
 
     def validate(self, params: hk.Params, batch: Batch) -> Tuple[jax.Array, jax.Array]:
         """Predicts batchwise validation loss/accuracy using supplied parameters
@@ -187,7 +200,7 @@ class ClassifierTrainer(object):
 
     @staticmethod
     def dataset_to_iterator(
-        ds: tf.data.Dataset, batch_size=int, shuffle: bool = True
+        ds: tf.data.Dataset, batch_size=int, shuffle: bool = True, cache: bool = False
     ) -> Iterator:
         """Method for transforming a tensorflow dataset into an Iterator over
         `Batch` instances
@@ -200,6 +213,8 @@ class ClassifierTrainer(object):
             integer batch size for resulting iterator
         shuffle:
             if `True`, the data will be shuffled before being returned
+        cache:
+            if `True`, the data will be cached (before shuffling)
 
         Returns
         -------
@@ -207,7 +222,8 @@ class ClassifierTrainer(object):
             `Iterator` over `Batch`es of size batch_size
         """
 
-        # ds.cache()
+        if cache:
+            ds.cache()
         if shuffle:
             ds.shuffle(batch_size)
         ds = ds.unbatch()
@@ -221,6 +237,7 @@ class ClassifierTrainer(object):
         val_dataset: Optional[tf.data.Dataset],
         num_epochs: int = 300,
         val_freq: int = 10,
+        cache: bool = False,
     ):
         """Training/validation loop
 
@@ -236,6 +253,8 @@ class ClassifierTrainer(object):
         val_freq:
             `int` specifying the number of epochs between successive
              validations
+        cache:
+            if `True`, shuffled train/val datasets will be cached every epoch
         """
 
         if not self.initialized:
@@ -246,11 +265,11 @@ class ClassifierTrainer(object):
             print(f"Training starting: {datetime.datetime.now()}")
         for epoch in range(num_epochs):
             train_examples = self.dataset_to_iterator(
-                train_dataset, batch_size=512, shuffle=True
+                train_dataset, batch_size=512, shuffle=True, cache=cache
             )
             if val_dataset:
                 val_examples = self.dataset_to_iterator(
-                    val_dataset, batch_size=512, shuffle=False
+                    val_dataset, batch_size=512, shuffle=False, cache=cache
                 )
 
             train_losses = []
@@ -283,3 +302,20 @@ class ClassifierTrainer(object):
                 jax.debug.print(
                     f"Epoch {epoch}: [train {jnp.mean(np.array(train_losses)):.4f}]"
                 )
+            if self.logger is not None:
+                self.logger.add_scalar(
+                    "training_loss", np.average(np.array(train_losses)), epoch
+                )
+                if val_dataset is not None:
+                    self.logger.add_scalar(
+                        "validation_loss",
+                        np.average(np.array(validation_losses)),
+                        epoch,
+                    )
+                    self.logger.add_scalar(
+                        "validation_accuracy",
+                        np.average(np.array(validation_accuracy)),
+                        epoch,
+                    )
+        if self.logger is not None:
+            self.logger.flush()
