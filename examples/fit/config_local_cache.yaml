@@ -1,0 +1,26 @@
+cache_data: true
+#profile: /scratch/usr/bzfbnick/jax_hpc_output/fashion_mnist_cache/tensorboard
+logger:
+    logger:
+        class_path: torch.utils.tensorboard.writer.SummaryWriter
+        init_args:
+            log_dir: /scratch/usr/bzfbnick/jax_hpc_output/fashion_mnist_cache/tensorboard
+platform: cpu
+model:
+    model:
+        class_path: jax_hpc.nn.models.FullyConnectedClassifier
+        init_args:
+            out_dim: 10
+            activation: jax.nn.relu
+            hidden_layers: [512,256]
+fit:
+    num_epochs: 300
+    val_freq: 1
+optimizer:
+    name: optax.adam
+    learning_rate: 0.001
+loss_function: image_cat_cross_entropy
+dataset:
+    name: fashion_mnist
+    batch_size: 512
+    split: ["train[0%:80%]", "train[80%:100%]"]

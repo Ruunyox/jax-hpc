@@ -1,6 +1,6 @@
 #! /bin/bash
-#SBATCH -J cli_test_cpu
-#SBATCH -o ./log/cli_test_cpu.out
+#SBATCH -J cli_test_cpu_cache
+#SBATCH -o ./log/cli_test_cpu_cache.out
 #SBATCH --time=00:30:00
 #SBATCH --partition=standard96:test
 #SBATCH --nodes=1
@@ -12,6 +12,5 @@ conda activate base
 
 export JAX_PLATFORM_NAME=cpu
 export PYTHONUNBUFFERED=on
-log_dir="."
 
-jaxhpc --config config_local.yaml --logger.logger=torch.utils.tensorboard.writer.SummaryWriter --logger.logger.log_dir="${log_dir}" 
+jaxhpc --config config_local_cache.yaml

@@ -1,0 +1,35 @@
+Module for Anaconda 2023.09 (Python 3.9.18) loaded.
+Traceback (most recent call last):
+  File "/home/bzfbnick/.local/bin/jaxhpc", line 5, in <module>
+    from jax_hpc.scripts.__main__ import main
+  File "/home/bzfbnick/.local/lib/python3.9/site-packages/jax_hpc/scripts/__init__.py", line 1, in <module>
+    from .__main__ import *
+  File "/home/bzfbnick/.local/lib/python3.9/site-packages/jax_hpc/scripts/__main__.py", line 3, in <module>
+    from ..nn.models import *
+  File "/home/bzfbnick/.local/lib/python3.9/site-packages/jax_hpc/nn/__init__.py", line 2, in <module>
+    from .training import *
+  File "/home/bzfbnick/.local/lib/python3.9/site-packages/jax_hpc/nn/training.py", line 4, in <module>
+    import optax
+  File "/sw/tools/anaconda3/2023.09/a100/lib/python3.9/site-packages/optax/__init__.py", line 17, in <module>
+    from optax import experimental
+  File "/sw/tools/anaconda3/2023.09/a100/lib/python3.9/site-packages/optax/experimental/__init__.py", line 20, in <module>
+    from optax._src.experimental.complex_valued import split_real_and_imaginary
+  File "/sw/tools/anaconda3/2023.09/a100/lib/python3.9/site-packages/optax/_src/experimental/complex_valued.py", line 32, in <module>
+    import chex
+  File "/sw/tools/anaconda3/2023.09/a100/lib/python3.9/site-packages/chex/__init__.py", line 17, in <module>
+    from chex._src.asserts import assert_axis_dimension
+  File "/sw/tools/anaconda3/2023.09/a100/lib/python3.9/site-packages/chex/_src/asserts.py", line 26, in <module>
+    from chex._src import asserts_internal as _ai
+  File "/sw/tools/anaconda3/2023.09/a100/lib/python3.9/site-packages/chex/_src/asserts_internal.py", line 34, in <module>
+    from chex._src import pytypes
+  File "/sw/tools/anaconda3/2023.09/a100/lib/python3.9/site-packages/chex/_src/pytypes.py", line 25, in <module>
+    ArraySharded = jax.interpreters.pxla.ShardedDeviceArray
+AttributeError: module 'jax.interpreters.pxla' has no attribute 'ShardedDeviceArray'
+============ Job Information ===================================================
+Submitted: 2023-11-29T00:11:31
+Started: 2023-11-29T00:11:31
+Ended: 2023-11-29T00:11:37
+Elapsed: 1 min, Limit: 30 min, Difference: 29 min
+(HT-)CPUs: 144, Nodes: 1
+Estimated core-h: (standard_in) 2: syntax error
+================================================================================
