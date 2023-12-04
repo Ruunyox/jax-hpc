@@ -1,3 +1,4 @@
+import contextlib
 import argparse
 from jsonargparse import CLI, ArgumentParser, ActionConfigFile
 from ..nn.models import *
@@ -20,14 +21,18 @@ optimizers = {"optax.adam": optax.adam}
 def main():
     parser = ArgumentParser()
     parser.add_argument("--cache_data", type=bool, default=False)
-    parser.add_argument("--profile", type=Optional[str], default=None)
+    parser.add_argument("--profiler.logdir", type=str)
+    parser.add_argument("--profiler.start", type=int)
+    parser.add_argument("--profiler.stop", type=int)
     parser.add_argument("--platform", type=str, default="cpu")
     parser.add_argument("--optimizer", type=Dict[str, Any])
     parser.add_argument("--loss_function", type=str)
     parser.add_class_arguments(ModelWrapper, "model")
-    parser.add_class_arguments(LoggerWrapper, "logger", fail_untyped=False)
     parser.add_class_arguments(FitWrapper, "fit")
     parser.add_function_arguments(tfds.load, "dataset")
+    parser.add_function_arguments(
+        tf.summary.create_file_writer, "logger", fail_untyped=False
+    )
     parser.add_argument("--config", action=ActionConfigFile)
 
     cfg = parser.parse_args()
@@ -72,20 +77,33 @@ def main():
         if val_dataset is not None:
             val_dataset = train_dataset.cache()
 
+    if cfg.logger.logdir is not None:
+        logger = tf.summary.create_file_writer(**cfg.logger)
+    else:
+        logger = None
+
+    if cfg.profiler is not None:
+        profiler = dict(cfg.profiler)
+    else:
+        profiler = None
+
     trainer = nn.training.ClassifierTrainer(
-        cfg.model.model, optimizer, loss_fn, verbose=True, logger=cfg.logger.logger
+        cfg.model.model,
+        optimizer,
+        loss_fn,
+        verbose=True,
+        logger=logger,
+        profiler=profiler,
     )
     dummy_data = list(train_dataset.take(1))[0]["image"].numpy()
     trainer.set_initial_state(dummy_data)
 
-    if cfg.profile is not None:
-        print("Begining profiling...")
-        jax.profiler.start_trace(log_dir=cfg.profile)
-
-    trainer.train(train_dataset, val_dataset, **cfg.fit._asdict(), cache=cfg.cache_data)
-    if cfg.profile is not None:
-        print("Ending profiling...")
-        jax.profiler.stop_trace()
+    trainer.train(
+        train_dataset,
+        val_dataset,
+        **cfg.fit._asdict(),
+        cache=cfg.cache_data,
+    )
 
 
 if __name__ == "__main__":

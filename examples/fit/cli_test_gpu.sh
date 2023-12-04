@@ -1,6 +1,6 @@
 #! /bin/bash
-#SBATCH -J cli_test_gpu
-#SBATCH -o cli_test_gpu.out
+#SBATCH -J jax_cli_test_gpu
+#SBATCH -o ./log_cli_gpu/cli_test_gpu.out
 #SBATCH --time=00:30:00
 #SBATCH --partition=gpu-a100
 #SBATCH --reservation=a100_tests
@@ -16,7 +16,8 @@ module load cuda/11.8
 module load anaconda3/2023.09
 conda activate base
 
+export XLA_FLAGS=--xla_gpu_cuda_data_dir=/sw/compiler/cuda/11.8/a100/install
 export JAX_PLATFORM_NAME=gpu
 export PYTHONUNBUFFERED=on
 
-jaxhpc --config config_local_gpu.yaml --logger.logger=torch.utils.tensorboard.writer.SummaryWriter --logger.logger.log_dir="${log_dir}"
+jaxhpc --config config_local_gpu.yaml

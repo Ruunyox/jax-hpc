@@ -1,3 +1,10 @@
+cache_data: false
+profiler: 
+    logdir: "log_cli_cpu"
+    start: 10
+    stop : 10
+logger: 
+    logdir: "log_cli_cpu"
 platform: gpu
 model:
     model:
@@ -7,8 +14,8 @@ model:
             activation: jax.nn.relu
             hidden_layers: [512,256]
 fit:
-    num_epochs: 300
-    val_freq: 10
+    num_epochs: 100
+    val_freq: 1
 optimizer:
     name: optax.adam
     learning_rate: 0.001

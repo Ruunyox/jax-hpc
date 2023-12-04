@@ -1,4 +1,4 @@
 #! /bin/bash
 
-rm log/*
-rm -r /scratch/usr/bzfbnick/jax_hpc_output/fashion_mnist
+rm -r ./log_cli_cpu/*
+rm -r ./log_cli_gpu/*

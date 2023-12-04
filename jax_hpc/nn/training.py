@@ -1,3 +1,4 @@
+import contextlib
 import datetime
 import jax
 import jaxlib
@@ -11,8 +12,6 @@ import jax.numpy as jnp
 from functools import partial
 from ..nn.models import *
 import tqdm
-import torch
-import torch.utils.tensorboard
 
 
 class FitWrapper(NamedTuple):
@@ -23,15 +22,6 @@ class FitWrapper(NamedTuple):
     val_freq: int
     # `int` specifying the number of epochs between successive
     # validations
-
-
-class LoggerWrapper(object):
-    """Wrapper for training/validation logging"""
-
-    def __init__(
-        self, logger: Optional[torch.utils.tensorboard.writer.SummaryWriter] = None
-    ):
-        self.logger = logger
 
 
 class Batch(NamedTuple):
@@ -110,7 +100,8 @@ class ClassifierTrainer(object):
         optimizer: optax._src.base.GradientTransformation,
         loss_fn: Callable,
         verbose: bool = True,
-        logger: Optional[torch.utils.tensorboard.writer.SummaryWriter] = None,
+        logger: Optional[tf.summary.SummaryWriter] = None,
+        profiler: Optional[Dict] = None,
     ):
         # Model forward kernels must be cached using
         # haiku transforms of generated haiku modules
@@ -123,6 +114,7 @@ class ClassifierTrainer(object):
         self.initialized = False
         self.verbose = verbose
         self.logger = logger
+        self.profiler = profiler
 
     def validate(self, params: hk.Params, batch: Batch) -> Tuple[jax.Array, jax.Array]:
         """Predicts batchwise validation loss/accuracy using supplied parameters
@@ -237,6 +229,7 @@ class ClassifierTrainer(object):
         val_dataset: Optional[tf.data.Dataset],
         num_epochs: int = 300,
         val_freq: int = 10,
+        batch_size: int = 512,
         cache: bool = False,
     ):
         """Training/validation loop
@@ -253,6 +246,8 @@ class ClassifierTrainer(object):
         val_freq:
             `int` specifying the number of epochs between successive
              validations
+        train_batch_size:
+            `int` specifying training/validation batch size
         cache:
             if `True`, shuffled train/val datasets will be cached every epoch
         """
@@ -263,59 +258,70 @@ class ClassifierTrainer(object):
             )
         if self.verbose:
             print(f"Training starting: {datetime.datetime.now()}")
-        for epoch in range(num_epochs):
-            train_examples = self.dataset_to_iterator(
-                train_dataset, batch_size=512, shuffle=True, cache=cache
-            )
-            if val_dataset:
-                val_examples = self.dataset_to_iterator(
-                    val_dataset, batch_size=512, shuffle=False, cache=cache
-                )
 
-            train_losses = []
-            for i, train_batch in tqdm.tqdm(
-                enumerate(train_examples), desc="Training..."
-            ):
-                loss, self.current_training_state = self.update(
-                    self.current_training_state,
-                    train_batch,
-                )
-                train_losses.append(loss)
+        with self.logger.as_default() if self.logger is not None else contextlib.nullcontext():
+            for epoch in range(num_epochs):
+                if self.profiler is not None and epoch == self.profiler["start"]:
+                    jax.profiler.start_trace(self.profiler["logdir"])
 
-            if epoch % val_freq == 0 and val_dataset is not None:
-                validation_losses = []
-                validation_accuracy = []
-                for i, validation_batch in tqdm.tqdm(
-                    enumerate(val_examples), desc="Validating..."
+                train_examples = self.dataset_to_iterator(
+                    train_dataset, batch_size=512, shuffle=True, cache=cache
+                )
+                if val_dataset:
+                    val_examples = self.dataset_to_iterator(
+                        val_dataset, batch_size=512, shuffle=False, cache=cache
+                    )
+
+                train_losses = []
+                for i, train_batch in tqdm.tqdm(
+                    enumerate(train_examples), desc="Training..."
                 ):
-                    loss, accuracy = self.validate(
-                        self.current_training_state.params,
-                        validation_batch,
+                    loss, self.current_training_state = self.update(
+                        self.current_training_state,
+                        train_batch,
                     )
-                    validation_losses.append(loss)
-                    validation_accuracy.append(accuracy)
-            if self.verbose and val_dataset is not None:
-                jax.debug.print(
-                    f"Epoch {epoch}: [train {jnp.mean(np.array(train_losses)):.4f}] --> [val {jnp.mean(np.array(validation_losses)):.4f}] --> [val acc {jnp.mean(np.array(validation_accuracy)):.4f}]"
-                )
-            if self.verbose and val_dataset is None:
-                jax.debug.print(
-                    f"Epoch {epoch}: [train {jnp.mean(np.array(train_losses)):.4f}]"
-                )
-            if self.logger is not None:
-                self.logger.add_scalar(
-                    "training_loss", np.average(np.array(train_losses)), epoch
-                )
-                if val_dataset is not None:
-                    self.logger.add_scalar(
-                        "validation_loss",
-                        np.average(np.array(validation_losses)),
-                        epoch,
+                    train_losses.append(loss)
+
+                if epoch % val_freq == 0 and val_dataset is not None:
+                    validation_losses = []
+                    validation_accuracy = []
+                    for i, validation_batch in tqdm.tqdm(
+                        enumerate(val_examples), desc="Validating..."
+                    ):
+                        loss, accuracy = self.validate(
+                            self.current_training_state.params,
+                            validation_batch,
+                        )
+                        validation_losses.append(loss)
+                        validation_accuracy.append(accuracy)
+                if self.verbose and val_dataset is not None:
+                    jax.debug.print(
+                        f"Epoch {epoch}: [train {jnp.mean(np.array(train_losses)):.4f}] --> [val {jnp.mean(np.array(validation_losses)):.4f}] --> [val acc {jnp.mean(np.array(validation_accuracy)):.4f}]"
                     )
-                    self.logger.add_scalar(
-                        "validation_accuracy",
-                        np.average(np.array(validation_accuracy)),
-                        epoch,
+                if self.verbose and val_dataset is None:
+                    jax.debug.print(
+                        f"Epoch {epoch}: [train {jnp.mean(np.array(train_losses)):.4f}]"
                     )
+                if self.logger is not None:
+                    tf.summary.scalar(
+                        "training_loss", np.average(np.array(train_losses)), epoch
+                    )
+                    if val_dataset is not None:
+                        tf.summary.scalar(
+                            "validation_loss",
+                            np.average(np.array(validation_losses)),
+                            epoch,
+                        )
+                        tf.summary.scalar(
+                            "validation_accuracy",
+                            np.average(np.array(validation_accuracy)),
+                            epoch,
+                        )
+                    self.logger.flush()
+
+                if self.profiler is not None and epoch == self.profiler["stop"]:
+                    jax.profiler.stop_trace()
+
         if self.logger is not None:
             self.logger.flush()
+            self.logger.close()
