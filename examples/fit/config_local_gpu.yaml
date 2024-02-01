@@ -1,10 +1,10 @@
 cache_data: false
 profiler: 
-    logdir: "log_cli_cpu"
+    logdir: "log_cli_gpu"
     start: 10
     stop : 10
 logger: 
-    logdir: "log_cli_cpu"
+    logdir: "log_cli_gpu"
 platform: gpu
 model:
     model:
