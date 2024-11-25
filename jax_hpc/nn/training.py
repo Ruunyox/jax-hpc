@@ -1,5 +1,5 @@
 import contextlib
-import datetime
+from datetime import datetime
 import jax
 import jaxlib
 import optax
@@ -56,7 +56,7 @@ def image_cat_cross_entropy(
         `Batch` instance containing inputs and labels
     model:
         Haiku-transformed model
-    logits:
+    lgits:
         `
     num_classes:
         Number of classes for classification
@@ -92,6 +92,13 @@ class ClassifierTrainer(object):
     verbose:
         If `True`, model training/validation progress will be printed to STDOUT during
         training.
+    logger:
+        If specified, a `tf.summary.SummaryWriter` will be used to log a tensorboard output
+    proilfer:
+        If specified, a `Dict` of profiling options will be used during the training.
+    basic_run_stats:
+        If `True`, basic performance statistics of the model training will be reported at the end
+        of the run.
     """
 
     def __init__(
@@ -102,6 +109,7 @@ class ClassifierTrainer(object):
         verbose: bool = True,
         logger: Optional[tf.summary.SummaryWriter] = None,
         profiler: Optional[Dict] = None,
+        basic_run_stats: bool = True,
     ):
         # Model forward kernels must be cached using
         # haiku transforms of generated haiku modules
@@ -115,6 +123,7 @@ class ClassifierTrainer(object):
         self.verbose = verbose
         self.logger = logger
         self.profiler = profiler
+        self.basic_run_stats = basic_run_stats
 
     def validate(self, params: hk.Params, batch: Batch) -> Tuple[jax.Array, jax.Array]:
         """Predicts batchwise validation loss/accuracy using supplied parameters
@@ -257,10 +266,19 @@ class ClassifierTrainer(object):
                 "Model and optimizer not initialized. Call `Trainer.set_initial_state` first."
             )
         if self.verbose:
-            print(f"Training starting: {datetime.datetime.now()}")
+            print(f"Training starting: {datetime.now()}")
 
         with self.logger.as_default() if self.logger is not None else contextlib.nullcontext():
+            if self.basic_run_stats:
+                train_epoch_times = []
+                start_time = None
+                end_time = None
+
+                start_time = datetime.now()
+
             for epoch in range(num_epochs):
+                if self.basic_run_stats:
+                    train_epoch_start = datetime.now()
                 if self.profiler is not None and epoch == self.profiler["start"]:
                     jax.profiler.start_trace(self.profiler["logdir"])
 
@@ -273,6 +291,7 @@ class ClassifierTrainer(object):
                     )
 
                 train_losses = []
+
                 for i, train_batch in tqdm.tqdm(
                     enumerate(train_examples), desc="Training..."
                 ):
@@ -281,6 +300,8 @@ class ClassifierTrainer(object):
                         train_batch,
                     )
                     train_losses.append(loss)
+                if self.basic_run_stats:
+                    train_epoch_end = datetime.now()
 
                 if epoch % val_freq == 0 and val_dataset is not None:
                     validation_losses = []
@@ -321,6 +342,25 @@ class ClassifierTrainer(object):
 
                 if self.profiler is not None and epoch == self.profiler["stop"]:
                     jax.profiler.stop_trace()
+
+                if self.basic_run_stats:
+                    duration = (
+                        train_epoch_end.timestamp() - train_epoch_start.timestamp()
+                    )
+                    train_epoch_times.append(duration)
+
+        if self.basic_run_stats:
+            end_time = datetime.now()
+            total_duration = end_time.timestamp() - start_time.timestamp()
+            avg_train = np.average(train_epoch_times)
+            std_train = np.std(train_epoch_times)
+            jax.debug.print("")
+            print(">>> TRAINING SUMMARY <<<")
+            print("===========================================================")
+            print(f"total time       :  {total_duration:.4f}")
+            print(f"avg train epoch  :  {avg_train:.4f} +/- {std_train:.4f}")
+            print("===========================================================")
+            print("")
 
         if self.logger is not None:
             self.logger.flush()
